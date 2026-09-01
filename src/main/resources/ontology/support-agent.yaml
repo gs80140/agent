@@ -1,0 +1,64 @@
+version: "2026.09.01"
+
+goals:
+  AfterSaleCompleted:
+    triggers: ["退款", "退货", "换货", "维修", "售后", "失灵", "杂音"]
+    desiredFacts: ["ResponseComposed"]
+
+capabilities:
+  UnderstandRequest:
+    implementation: extractRequest
+    requires: ["UserRequestAvailable"]
+    produces: ["RequestUnderstood"]
+    effect: NONE
+    description: 从用户自然语言中识别身份、商品、售后类型和原因
+
+  QueryUserOrders:
+    implementation: queryOrders
+    requires: ["RequestUnderstood"]
+    produces: ["CustomerIdentified", "OrdersAvailable"]
+    effect: READ
+    description: 查询用户与名下订单
+
+  SelectTargetOrder:
+    implementation: selectOrder
+    requires: ["RequestUnderstood", "OrdersAvailable"]
+    produces: ["TargetOrderSelected"]
+    effect: NONE
+    description: 从订单列表中选择用户描述的商品
+
+  EvaluateRefundPolicy:
+    implementation: evaluatePolicy
+    requires: ["TargetOrderSelected"]
+    produces: ["RefundDecisionAllowed"]
+    effect: READ
+    description: 查询物流详情并判断售后政策
+
+  RequestHumanApproval:
+    implementation: humanApproval
+    requires: ["CustomerIdentified", "TargetOrderSelected", "RefundDecisionAllowed"]
+    produces: ["HumanApproved"]
+    effect: NONE
+    approvalRequired: true
+    description: 有副作用操作前请求人工确认
+
+  CreateSupportTicket:
+    implementation: createTicket
+    requires: ["CustomerIdentified", "TargetOrderSelected", "RefundDecisionAllowed", "HumanApproved"]
+    produces: ["SupportTicketCreated"]
+    effect: WRITE
+    description: 创建售后工单
+
+  NotifyCustomer:
+    implementation: notifyCustomer
+    requires: ["CustomerIdentified", "SupportTicketCreated"]
+    produces: ["CustomerNotified"]
+    effect: EXTERNAL_WRITE
+    description: 向客户发送工单通知
+
+  ComposeFinalResponse:
+    implementation: composeResponse
+    requires: ["TargetOrderSelected", "SupportTicketCreated", "CustomerNotified"]
+    produces: ["ResponseComposed"]
+    effect: NONE
+    description: 生成最终回复

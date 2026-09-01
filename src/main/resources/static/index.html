@@ -171,6 +171,10 @@
         .typing span:nth-child(2) { animation-delay: .2s; }
         .typing span:nth-child(3) { animation-delay: .4s; }
         @keyframes pulse { to { opacity: .25; transform: translateY(-3px); } }
+        .approval-actions { display: flex; gap: 10px; margin-top: 14px; }
+        .approval-actions button { border: 0; border-radius: 10px; padding: 9px 16px; cursor: pointer; }
+        .approve { color: #fff; background: #16a34a; }
+        .reject { color: #991b1b; background: #fee2e2; }
 
         .composer-wrap { padding: 12px clamp(16px, 4vw, 38px) 18px; border-top: 1px solid var(--line); }
         .composer {
@@ -321,7 +325,9 @@
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.detail || '服务请求失败');
-            loading.querySelector('.bubble').innerHTML = renderMarkdown(data.content || '未收到回复');
+            const bubble = loading.querySelector('.bubble');
+            bubble.innerHTML = renderMarkdown(data.content || '未收到回复');
+            if (data.status === 'WAITING_APPROVAL') addApprovalActions(bubble, data.executionId);
         } catch (error) {
             loading.querySelector('.bubble').innerHTML = `<p>抱歉，暂时无法处理：${escapeHtml(error.message)}</p>`;
         } finally {
@@ -329,6 +335,32 @@
             sendButton.disabled = false;
             promptInput.focus();
             messages.scrollTop = messages.scrollHeight;
+        }
+    }
+
+    function addApprovalActions(bubble, executionId) {
+        const actions = document.createElement('div');
+        actions.className = 'approval-actions';
+        actions.innerHTML = '<button class="approve" type="button">批准执行</button>'
+            + '<button class="reject" type="button">拒绝</button>';
+        bubble.appendChild(actions);
+        actions.querySelector('.approve').addEventListener('click', () => submitDecision(bubble, executionId, true));
+        actions.querySelector('.reject').addEventListener('click', () => submitDecision(bubble, executionId, false));
+    }
+
+    async function submitDecision(bubble, executionId, approved) {
+        bubble.querySelectorAll('button').forEach(button => button.disabled = true);
+        const pending = addMessage('assistant', '', true);
+        try {
+            const response = await fetch(`/api/agent/executions/${encodeURIComponent(executionId)}/decision`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ approved })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail || '审批请求失败');
+            pending.querySelector('.bubble').innerHTML = renderMarkdown(data.content || '流程已结束');
+        } catch (error) {
+            pending.querySelector('.bubble').innerHTML = `<p>审批处理失败：${escapeHtml(error.message)}</p>`;
         }
     }
 

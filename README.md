@@ -1,12 +1,19 @@
 # Spring AI 电商售后智能客服 Agent
 
-一个可运行的 Spring Boot 4 + Spring AI 2 项目。`ChatClient` 挂载 4 个业务工具，由模型在同一次请求中自主完成：
+一个可运行的 Spring Boot 4 + Spring AI Alibaba Graph 项目。企业 Ontology 声明目标、业务能力、前置事实、产出事实、副作用和审批要求，运行时根据用户目标反向规划并动态编译 Graph：
 
-`查用户与订单 → 查订单政策 → 创建售后工单 → 发送通知 → 汇总答复`
+`Ontology → Capability Planner → Plan Validator → Dynamic StateGraph → HITL → Resume`
 
-项目使用 Spring AI 2 的 `defaultTools(...)` 与 `@Tool` API。Spring AI 2 中工具循环由 `ChatClient` 自动注册的 `ToolCallingAdvisor` 驱动；旧版 `defaultFunctions(...)` / 按 Bean 名解析 Function 的写法已不再适用。
+退款流程不再作为 Java 固定编排。Planner 从 `ResponseComposed` 目标反向寻找能够产出所需事实的 Capability，得到本次执行计划。Graph 执行到具有 `approvalRequired: true` 的节点前写入 checkpoint 并中断，只有用户批准后才恢复执行写操作。
 
 提示词由 Nacos 3.2 AI Prompt 管理。应用通过业务别名批量订阅；当前 `support-system` 默认订阅 `SupportAgentService_SYSTEM_PROMPT` 的 `production` 标签。Nacos 通过 SDK 通知应用 Prompt 变更，修改后无需重启。
+
+Ontology 默认从 `classpath:ontology/support-agent.yaml` 加载，同时订阅 Nacos Config：
+
+- Data ID：`support-agent-ontology.yaml`
+- Group：`DEFAULT_GROUP`
+
+Nacos 中存在配置时覆盖本地 fallback；配置发生变化时先解析和校验，只有合法版本才原子替换，非法更新继续使用最近有效版本。可以直接把 `src/main/resources/ontology/support-agent.yaml` 发布到该 Data ID。
 
 新增 Prompt 时，在 `support-agent.prompt.bindings` 下增加绑定：
 
@@ -69,9 +76,27 @@ Invoke-RestMethod `
 
 ```json
 {
-  "content": "您好，张三先生……工单 TCK-xxx 已提交审核，短信通知已发送。"
+  "executionId": "75cf...",
+  "status": "WAITING_APPROVAL",
+  "content": "已完成订单与售后政策核验……是否批准？",
+  "ontologyVersion": "2026.09.01",
+  "goal": "AfterSaleCompleted",
+  "plannedCapabilities": ["UnderstandRequest", "QueryUserOrders", "..."]
 }
 ```
+
+批准并恢复执行：
+
+```powershell
+$decision = @{ approved = $true } | ConvertTo-Json
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://localhost:8080/api/agent/executions/$executionId/decision" `
+  -ContentType "application/json" `
+  -Body $decision
+```
+
+内置 Chat UI 会在中断时显示“批准执行 / 拒绝”按钮。
 
 查看健康状态：`GET http://localhost:8080/actuator/health`。
 
@@ -81,14 +106,15 @@ Invoke-RestMethod `
 mvn test
 ```
 
-测试不调用真实模型，也不需要 API Key：工具层测试覆盖完整成功链路和异常输入，Controller 测试覆盖 JSON 响应及参数校验。
+测试不调用真实模型，也不需要 API Key。`OntologyGraphRuntimeTest` 覆盖 Ontology 反向规划、Graph 编译、审批前中断、批准恢复、创建工单和发送通知的完整链路。
 
 ## 关键设计
 
-- 工具用 `@Tool` / `@ToolParam` 暴露，Schema 和描述直接提供给模型。
-- 系统提示词强制“先查再改”，并禁止虚构工具结果。
-- 创建工单时校验用户与订单归属，通知工具校验工单号。
-- `temperature=0.1` 降低工具选择的不稳定性。
-- 工具异常默认抛给应用，由统一异常处理返回 RFC 9457 Problem Details。
+- Ontology 是企业知识源，流程由 Capability 的 `requires/produces` 动态推导，而不是读取固定工作流。
+- Capability implementation 必须在代码白名单中注册，Ontology 不能执行任意 Bean 或脚本。
+- Plan Validator 校验事实依赖、最大节点数、实现是否注册，以及写操作之前是否存在审批能力。
+- 每次 execution 固定 Ontology 版本，并独享 CompiledGraph 与 MemorySaver checkpoint。
+- 用户拒绝时直接终止 execution，不执行创建工单和通知等副作用。
+- Graph 和业务能力解耦；增加新能力只需实现 `CapabilityHandler` 并在 Ontology 中声明语义。
 
-当前数据是内存模拟。接入生产时应把工具内部替换为 Repository/HTTP Client，并为 `create_support_ticket` 增加幂等键、权限校验、审计日志和人工审批门禁。
+当前数据与 checkpoint 是内存模拟。接入生产时应把业务能力替换为 Repository/HTTP Client，将 `MemorySaver` 替换为 Redis/JDBC Saver，并为写操作增加持久化幂等键、权限校验、审计日志和补偿动作。

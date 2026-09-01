@@ -27,6 +27,11 @@ logging:
     org.springframework.ai: ${SPRING_AI_LOG_LEVEL:INFO}
 
 support-agent:
+  ontology:
+    data-id: ${NACOS_ONTOLOGY_DATA_ID:support-agent-ontology.yaml}
+    group: ${NACOS_ONTOLOGY_GROUP:DEFAULT_GROUP}
+    fallback: classpath:ontology/support-agent.yaml
+    timeout-ms: ${NACOS_ONTOLOGY_TIMEOUT_MS:3000}
   prompt:
     server-addr: ${NACOS_SERVER_ADDR:127.0.0.1:8848}
     namespace-id: ${NACOS_NAMESPACE_ID:public}

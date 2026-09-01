@@ -1,30 +1,45 @@
 package com.example.supportagent.service;
 
-import com.example.supportagent.config.NacosPromptRegistry;
-import com.example.supportagent.tools.CustomerSupportTools;
-import org.springframework.ai.chat.client.ChatClient;
+import com.example.supportagent.ontology.EnterpriseOntologyRegistry;
+import com.example.supportagent.workflow.AgentExecutionResponse;
+import com.example.supportagent.workflow.AgentGraphRuntime;
+import com.example.supportagent.workflow.DynamicGraphCompiler;
+import com.example.supportagent.workflow.ExecutionPlanValidator;
+import com.example.supportagent.workflow.OntologyCapabilityPlanner;
 import org.springframework.stereotype.Service;
 
 @Service
 public class SupportAgentService {
 
-    private static final String SYSTEM_PROMPT_NAME = "support-system";
-    private final ChatClient chatClient;
-    private final NacosPromptRegistry promptRegistry;
+    private final EnterpriseOntologyRegistry ontologyRegistry;
+    private final OntologyCapabilityPlanner planner;
+    private final ExecutionPlanValidator validator;
+    private final DynamicGraphCompiler graphCompiler;
+    private final AgentGraphRuntime graphRuntime;
 
-    public SupportAgentService(ChatClient.Builder builder, CustomerSupportTools tools,
-                               NacosPromptRegistry promptRegistry) {
-        this.promptRegistry = promptRegistry;
-        this.chatClient = builder
-                .defaultTools(tools)
-                .build();
+    public SupportAgentService(EnterpriseOntologyRegistry ontologyRegistry, OntologyCapabilityPlanner planner,
+                               ExecutionPlanValidator validator, DynamicGraphCompiler graphCompiler,
+                               AgentGraphRuntime graphRuntime) {
+        this.ontologyRegistry = ontologyRegistry;
+        this.planner = planner;
+        this.validator = validator;
+        this.graphCompiler = graphCompiler;
+        this.graphRuntime = graphRuntime;
     }
 
+    public AgentExecutionResponse start(String userPrompt) {
+        var ontology = ontologyRegistry.current();
+        var plan = planner.plan(userPrompt, ontology);
+        validator.validate(plan);
+        return graphRuntime.start(graphCompiler.compile(plan), plan, userPrompt);
+    }
+
+    public AgentExecutionResponse decide(String executionId, boolean approved) {
+        return graphRuntime.decide(executionId, approved);
+    }
+
+    /** 保留旧调用方式，便于已有集成逐步迁移。 */
     public String handleUserMessage(String userPrompt) {
-        return chatClient.prompt()
-                .system(promptRegistry.get(SYSTEM_PROMPT_NAME))
-                .user(userPrompt)
-                .call()
-                .content();
+        return start(userPrompt).content();
     }
 }
