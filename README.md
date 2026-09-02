@@ -98,6 +98,27 @@ Invoke-RestMethod `
 
 内置 Chat UI 会在中断时显示“批准执行 / 拒绝”按钮。
 
+## 查看动态 Graph 与执行轨迹
+
+每次 `/chat` 返回的 `executionId` 都可以查询实际生成的 Graph 和逐节点轨迹：
+
+```http
+GET /api/agent/executions/{executionId}
+```
+
+响应包含：
+
+- 本次固定的 Ontology 版本和业务目标
+- 实际生成的 `ExecutionPlan`
+- 可复制到 Mermaid 编辑器的动态图源码
+- 当前 execution 状态和所在节点
+- 每个节点的 `PENDING/RUNNING/COMPLETED/FAILED` 状态
+- 节点耗时、进入前的 state keys、输出增量和异常信息
+
+Chat UI 会在每条 Agent 回复下显示“查看动态 Graph 执行轨迹”，展开即可看到节点链路。服务端也会为每个节点输出带 `executionId` 的开始、完成、耗时和失败日志，可以通过 executionId 串起一次完整调用。
+
+Demo 的追踪数据保存在内存中，重启即清空。生产环境建议接入 Micrometer/OpenTelemetry，并对节点输出中的用户信息进行脱敏后再持久化。
+
 查看健康状态：`GET http://localhost:8080/actuator/health`。
 
 ## 测试

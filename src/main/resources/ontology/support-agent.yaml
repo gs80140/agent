@@ -1,10 +1,13 @@
+# 当前知识快照版本。运行中的 execution 会固定此版本，不能随 Nacos 热更新漂移。
 version: "2026.09.01"
 
+# 目标描述“最终想得到哪些事实”，并不直接声明固定节点顺序。
 goals:
   AfterSaleCompleted:
     triggers: ["退款", "退货", "换货", "维修", "售后", "失灵", "杂音"]
     desiredFacts: ["ResponseComposed"]
 
+# Capability 是企业能力知识。Planner 根据 requires/produces 关系反向拼装工作流。
 capabilities:
   UnderstandRequest:
     implementation: extractRequest
@@ -39,6 +42,7 @@ capabilities:
     requires: ["CustomerIdentified", "TargetOrderSelected", "RefundDecisionAllowed"]
     produces: ["HumanApproved"]
     effect: NONE
+    # Graph Compiler 会把此能力配置为 interruptBefore，写入 checkpoint 后等待用户决定。
     approvalRequired: true
     description: 有副作用操作前请求人工确认
 
@@ -46,6 +50,7 @@ capabilities:
     implementation: createTicket
     requires: ["CustomerIdentified", "TargetOrderSelected", "RefundDecisionAllowed", "HumanApproved"]
     produces: ["SupportTicketCreated"]
+    # WRITE 会触发计划校验规则：之前必须已经出现 approvalRequired 能力。
     effect: WRITE
     description: 创建售后工单
 
@@ -53,6 +58,7 @@ capabilities:
     implementation: notifyCustomer
     requires: ["CustomerIdentified", "SupportTicketCreated"]
     produces: ["CustomerNotified"]
+    # 外部通知同样属于副作用，不能在审批之前运行。
     effect: EXTERNAL_WRITE
     description: 向客户发送工单通知
 

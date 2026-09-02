@@ -12,6 +12,12 @@ import org.springframework.util.StringUtils;
 
 import java.util.concurrent.Executor;
 
+/**
+ * 将 Nacos Config 的主动推送桥接到 {@link EnterpriseOntologyRegistry}。
+ *
+ * <p>这里使用 Listener，而不是定时轮询。Nacos 不可用或新配置不合法时只记录告警，
+ * Registry 中的 fallback/最近有效版本保持不变。</p>
+ */
 @Component
 public class NacosOntologySubscriber {
     private static final Logger log = LoggerFactory.getLogger(NacosOntologySubscriber.class);
@@ -29,6 +35,7 @@ public class NacosOntologySubscriber {
 
     @PostConstruct
     void subscribe() {
+        // Nacos 回调可能运行在 SDK 线程中，因此 Registry 的替换操作必须是线程安全的。
         listener = new Listener() {
             @Override public Executor getExecutor() { return null; }
             @Override public void receiveConfigInfo(String configInfo) {
@@ -41,6 +48,7 @@ public class NacosOntologySubscriber {
             }
         };
         try {
+            // 先同步读取当前值，避免注册 Listener 到第一次推送之间存在配置空窗期。
             var current = configService.getConfig(properties.getDataId(), properties.getGroup(),
                     properties.getTimeoutMs());
             if (StringUtils.hasText(current)) {
@@ -57,6 +65,7 @@ public class NacosOntologySubscriber {
 
     @PreDestroy
     void unsubscribe() {
+        // 应用关闭时解除监听，避免 SDK 持有回调对象和线程资源。
         if (listener != null) {
             configService.removeListener(properties.getDataId(), properties.getGroup(), listener);
         }

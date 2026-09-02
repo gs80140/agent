@@ -27,12 +27,14 @@ logging:
     org.springframework.ai: ${SPRING_AI_LOG_LEVEL:INFO}
 
 support-agent:
+  # 企业 Ontology 使用 Nacos Config 主动推送；Nacos 无配置/不可达时使用 classpath fallback。
   ontology:
     data-id: ${NACOS_ONTOLOGY_DATA_ID:support-agent-ontology.yaml}
     group: ${NACOS_ONTOLOGY_GROUP:DEFAULT_GROUP}
     fallback: classpath:ontology/support-agent.yaml
     timeout-ms: ${NACOS_ONTOLOGY_TIMEOUT_MS:3000}
   prompt:
+    # Prompt 使用 Nacos AI Prompt API，bindings 的 key 是应用内部业务别名。
     server-addr: ${NACOS_SERVER_ADDR:127.0.0.1:8848}
     namespace-id: ${NACOS_NAMESPACE_ID:public}
     bindings:

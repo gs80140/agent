@@ -3,6 +3,7 @@ package com.example.supportagent.ontology;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+/** Nacos Ontology Data ID、Group、fallback 和首次读取超时配置。 */
 @Component
 @ConfigurationProperties(prefix = "support-agent.ontology")
 public class OntologyProperties {

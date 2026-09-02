@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="alternate icon" href="/favicon.ico">
     <title>售后智能客服</title>
     <style>
         :root {
@@ -175,6 +177,21 @@
         .approval-actions button { border: 0; border-radius: 10px; padding: 9px 16px; cursor: pointer; }
         .approve { color: #fff; background: #16a34a; }
         .reject { color: #991b1b; background: #fee2e2; }
+        .trace { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line); font-size: 12px; }
+        .trace summary { color: var(--primary); cursor: pointer; font-weight: 600; }
+        .trace-meta { margin: 8px 0; color: var(--muted); }
+        .trace-flow { display: flex; align-items: center; gap: 5px; overflow-x: auto; padding: 6px 0 10px; }
+        .trace-node { flex: 0 0 auto; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--line); background: #f8fafc; }
+        .trace-node.completed { color: #166534; border-color: #86efac; background: #f0fdf4; }
+        .trace-node.running { color: #1d4ed8; border-color: #93c5fd; background: #eff6ff; }
+        .trace-node.failed { color: #991b1b; border-color: #fca5a5; background: #fef2f2; }
+        .trace-node.pending { color: #64748b; }
+        .trace-node.waiting { color: #92400e; border-color: #fcd34d; background: #fffbeb; }
+        .trace-arrow { color: #94a3b8; }
+        .trace-table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+        .trace-table td { padding: 5px; border-top: 1px solid var(--line); vertical-align: top; }
+        .trace-error { color: #b91c1c; }
+        .mermaid-source { white-space: pre; overflow-x: auto; padding: 8px; border-radius: 8px; background: #f8fafc; }
 
         .composer-wrap { padding: 12px clamp(16px, 4vw, 38px) 18px; border-top: 1px solid var(--line); }
         .composer {
@@ -224,6 +241,7 @@
     </style>
 </head>
 <body>
+<!-- 单页 Chat UI：不依赖前端框架，便于直接随 Spring Boot 静态资源发布。 -->
 <main class="app">
     <header>
         <div class="logo">✦</div>
@@ -256,6 +274,7 @@
 </main>
 
 <script>
+    // 页面只允许一个请求同时发送，避免用户重复点击创建多个 execution。
     const messages = document.querySelector('#messages');
     const form = document.querySelector('#chat-form');
     const promptInput = document.querySelector('#prompt');
@@ -328,6 +347,7 @@
             const bubble = loading.querySelector('.bubble');
             bubble.innerHTML = renderMarkdown(data.content || '未收到回复');
             if (data.status === 'WAITING_APPROVAL') addApprovalActions(bubble, data.executionId);
+            await appendExecutionTrace(bubble, data.executionId);
         } catch (error) {
             loading.querySelector('.bubble').innerHTML = `<p>抱歉，暂时无法处理：${escapeHtml(error.message)}</p>`;
         } finally {
@@ -339,6 +359,7 @@
     }
 
     function addApprovalActions(bubble, executionId) {
+        // WAITING_APPROVAL 由后端 Graph 中断产生；按钮只负责提交决定，不在前端模拟流程状态。
         const actions = document.createElement('div');
         actions.className = 'approval-actions';
         actions.innerHTML = '<button class="approve" type="button">批准执行</button>'
@@ -349,6 +370,7 @@
     }
 
     async function submitDecision(bubble, executionId, approved) {
+        // 使用原 executionId，后端才能从对应 threadId 的 checkpoint 继续。
         bubble.querySelectorAll('button').forEach(button => button.disabled = true);
         const pending = addMessage('assistant', '', true);
         try {
@@ -358,10 +380,43 @@
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.detail || '审批请求失败');
-            pending.querySelector('.bubble').innerHTML = renderMarkdown(data.content || '流程已结束');
+            const resultBubble = pending.querySelector('.bubble');
+            resultBubble.innerHTML = renderMarkdown(data.content || '流程已结束');
+            await appendExecutionTrace(resultBubble, executionId);
         } catch (error) {
             pending.querySelector('.bubble').innerHTML = `<p>审批处理失败：${escapeHtml(error.message)}</p>`;
         }
+    }
+
+    async function appendExecutionTrace(bubble, executionId) {
+        const response = await fetch(`/api/agent/executions/${encodeURIComponent(executionId)}`);
+        if (!response.ok) return;
+        const trace = await response.json();
+        const details = document.createElement('details');
+        details.className = 'trace';
+        const current = trace.currentNode ? ` · 当前：${escapeHtml(trace.currentNode)}` : '';
+        details.innerHTML = `<summary>查看动态 Graph 执行轨迹</summary>
+            <div class="trace-meta">状态：${escapeHtml(trace.status)}${current} · Ontology：${escapeHtml(trace.ontologyVersion)} · ${trace.elapsedMs} ms</div>`;
+
+        const flow = document.createElement('div');
+        flow.className = 'trace-flow';
+        const visibleNodes = [{ capability: 'START', status: 'COMPLETED' }, ...trace.nodes,
+            { capability: 'END', status: trace.status === 'COMPLETED' ? 'COMPLETED' : 'PENDING' }];
+        visibleNodes.forEach((node, index) => {
+            if (index) flow.insertAdjacentHTML('beforeend', '<span class="trace-arrow">→</span>');
+            let status = (node.status || 'PENDING').toLowerCase();
+            if (trace.status === 'WAITING_APPROVAL' && node.nodeId === trace.currentNode) status = 'waiting';
+            flow.insertAdjacentHTML('beforeend', `<span class="trace-node ${status}" title="${escapeHtml(node.status || '')}">${escapeHtml(node.capability)}</span>`);
+        });
+        details.appendChild(flow);
+
+        const rows = trace.nodes.map(node => `<tr>
+            <td>${escapeHtml(node.capability)}</td><td>${escapeHtml(node.status)}</td><td>${node.elapsedMs} ms</td>
+            <td>${escapeHtml(Object.keys(node.output || {}).join(', ') || '-')}</td>
+            <td class="trace-error">${escapeHtml(node.error || '')}</td></tr>`).join('');
+        details.insertAdjacentHTML('beforeend', `<table class="trace-table"><tbody>${rows}</tbody></table>
+            <details><summary>Mermaid 源码</summary><pre class="mermaid-source">${escapeHtml(trace.mermaid)}</pre></details>`);
+        bubble.appendChild(details);
     }
 
     function resizeInput() {

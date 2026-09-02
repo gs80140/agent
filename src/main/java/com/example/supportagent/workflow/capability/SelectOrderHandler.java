@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.Map;
 
+/** NONE 副作用能力：从已查询订单中选择用户描述的目标商品。 */
 @Component
 public class SelectOrderHandler implements CapabilityHandler {
     @Override public String name() { return "selectOrder"; }
@@ -15,6 +16,7 @@ public class SelectOrderHandler implements CapabilityHandler {
     @Override
     @SuppressWarnings("unchecked")
     public Map<String, Object> apply(OverAllState state) {
+        // Graph state 对集合只保留运行时类型，因此在节点边界集中完成受控转换。
         var orders = (List<OrderSummary>) state.value("orders").orElse(List.of());
         String product = state.value("targetProduct", "");
         var selected = orders.stream().filter(order -> order.productName().contains(product.replace("无线", ""))
