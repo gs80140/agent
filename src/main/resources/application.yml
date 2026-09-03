@@ -42,3 +42,11 @@ support-agent:
         key: ${NACOS_SYSTEM_PROMPT_KEY:SupportAgentService_SYSTEM_PROMPT}
         label: ${NACOS_SYSTEM_PROMPT_LABEL:production}
         required: true
+      knowledge-retriever:
+        key: ${NACOS_KNOWLEDGE_RETRIEVER_PROMPT_KEY:KnowledgeRetriever_SYSTEM_PROMPT}
+        label: ${NACOS_KNOWLEDGE_RETRIEVER_PROMPT_LABEL:production}
+        required: false
+      ontology-intent-resolver:
+        key: ${NACOS_ONTOLOGY_INTENT_PROMPT_KEY:OntologyIntentResolver_SYSTEM_PROMPT}
+        label: ${NACOS_ONTOLOGY_INTENT_PROMPT_LABEL:production}
+        required: false

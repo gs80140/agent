@@ -1,0 +1,18 @@
+- id: product-quality-policy
+  title: 商品质量问题认定与七天退货政策
+  conceptIds: [quality-problem, key-chattering, after-sale-policy]
+  content: |
+    商品在正常使用中出现功能失灵、异常噪音、按键连击或无法开机，可认定为质量问题。
+    签收后七天内发生质量问题时，客户可以申请退货退款或换货；超过期限时转维修检测。
+
+- id: side-effect-approval-policy
+  title: 售后写操作人工确认政策
+  conceptIds: [return-refund-intent, after-sale-policy]
+  content: |
+    创建售后工单和发起退款属于有副作用操作，必须先告知订单、商品和服务类型并获得客户批准。
+
+- id: notification-consistency-policy
+  title: 售后通知一致性政策
+  conceptIds: [after-sale-policy]
+  content: |
+    只有售后工单真实创建成功并取得有效工单号后，才能发送受理成功通知。

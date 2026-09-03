@@ -1,0 +1,39 @@
+id: standard-return-refund
+version: "3.1.0"
+name: 标准质量问题退货退款流程
+status: PUBLISHED
+ontologyInstanceId: process-standard-return-refund-v3
+appliesToIntents: [return-refund-intent, exchange-intent]
+goal: 完成符合企业政策的退货退款受理
+nodes:
+  - { id: understand-request, semanticType: understand-request, capabilityId: understand-customer-request }
+  - { id: query-orders, semanticType: query-orders, capabilityId: query-customer-orders }
+  - { id: locate-order, semanticType: locate-order, capabilityId: locate-target-order }
+  - id: collect-evidence
+    semanticType: collect-evidence
+    capabilityId: collect-return-evidence
+    interaction:
+      type: FORM_INPUT
+      title: 请补充退货资料
+      description: 请描述具体故障现象，并提供至少一项图片或视频凭证地址。
+      required: [problemDescription, evidenceUrls]
+      properties:
+        problemDescription: { type: string, label: 故障详细描述, minLength: 5, maxLength: 500 }
+        evidenceUrls: { type: array, label: 图片或视频地址, minItems: 1, maxItems: 5 }
+  - id: evaluate-policy
+    semanticType: evaluate-policy
+    capabilityId: evaluate-after-sale-policy
+    knowledgeConceptIds: [quality-problem, after-sale-policy]
+  - id: human-approval
+    semanticType: human-approval
+    capabilityId: request-customer-approval
+    interaction:
+      type: APPROVAL
+      title: 确认创建售后工单
+      description: 请确认是否批准创建退货退款工单并发送进度通知。
+      required: [approvalDecision]
+      properties:
+        approvalDecision: { type: string, label: 审批决定 }
+  - { id: create-ticket, semanticType: create-ticket, capabilityId: create-after-sale-ticket }
+  - { id: notify-customer, semanticType: notify-customer, capabilityId: notify-customer-progress }
+  - { id: compose-response, semanticType: compose-response, capabilityId: compose-customer-response }

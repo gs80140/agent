@@ -3,6 +3,7 @@ package com.example.supportagent.workflow.capability;
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.example.supportagent.tools.CustomerSupportTools.OrderSummary;
 import com.example.supportagent.workflow.CapabilityHandler;
+import com.example.supportagent.workflow.CapabilitySchema;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -11,7 +12,12 @@ import java.util.Map;
 /** NONE 副作用能力：从已查询订单中选择用户描述的目标商品。 */
 @Component
 public class SelectOrderHandler implements CapabilityHandler {
-    @Override public String name() { return "selectOrder"; }
+    @Override public CapabilitySchema schema() {
+        return new CapabilitySchema("locate-target-order", "定位客户描述的目标订单", "selectOrder",
+                java.util.List.of("orders", "targetProduct"),
+                java.util.List.of("orderId", "productName", "amount"),
+                CapabilitySchema.EffectLevel.NONE, false);
+    }
 
     @Override
     @SuppressWarnings("unchecked")

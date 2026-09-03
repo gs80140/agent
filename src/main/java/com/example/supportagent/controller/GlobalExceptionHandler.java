@@ -4,9 +4,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /** 把参数校验和运行时异常统一转换为 RFC 9457 Problem Details。 */
 @RestControllerAdvice
@@ -22,6 +24,24 @@ public class GlobalExceptionHandler {
                         .findFirst().map(error -> error.getDefaultMessage()).orElse("请求参数不合法"));
         detail.setTitle("请求校验失败");
         return detail;
+    }
+
+    /**
+     * 静态资源缺失不是 Agent 执行异常，不能落入下面的 500 兜底处理器。
+     * Chrome DevTools 会自动探测 appspecific 描述文件；本应用没有需要声明的 DevTools 能力，
+     * 因此对该探测明确返回 204。其他未知资源保持语义正确的 404。
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    ResponseEntity<?> handleMissingResource(NoResourceFoundException exception) {
+        String path = exception.getResourcePath().replace('\\', '/');
+        if (path.equals(".well-known/appspecific/com.chrome.devtools.json")
+                || path.equals("/.well-known/appspecific/com.chrome.devtools.json")) {
+            return ResponseEntity.noContent().build();
+        }
+
+        var detail = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, "请求的资源不存在");
+        detail.setTitle("资源未找到");
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(detail);
     }
 
     @ExceptionHandler(Exception.class)

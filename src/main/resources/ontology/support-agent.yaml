@@ -1,70 +1,95 @@
-# 当前知识快照版本。运行中的 execution 会固定此版本，不能随 Nacos 热更新漂移。
-version: "2026.09.01"
+version: "2026.09.05"
 
-# 目标描述“最终想得到哪些事实”，并不直接声明固定节点顺序。
-goals:
-  AfterSaleCompleted:
-    triggers: ["退款", "退货", "换货", "维修", "售后", "失灵", "杂音"]
-    desiredFacts: ["ResponseComposed"]
+# C：企业售后领域概念。这里只有语义，不包含知识正文、Java Bean 或执行步骤。
+concepts:
+  - { id: party, name: 参与方, description: 参与交易或售后的主体, parentIds: [] }
+  - { id: customer, name: 客户, description: 购买商品并提出售后诉求的主体, parentIds: [party] }
+  - { id: commerce-object, name: 交易对象, description: 电商交易形成的业务对象, parentIds: [] }
+  - { id: order, name: 订单, description: 客户购买商品形成的订单, parentIds: [commerce-object] }
+  - { id: order-item, name: 订单项, description: 订单中的具体商品项目, parentIds: [commerce-object] }
+  - { id: product-problem, name: 商品问题, description: 客户报告的商品异常, parentIds: [] }
+  - { id: quality-problem, name: 商品质量问题, description: 正常使用中出现的功能性问题, parentIds: [product-problem] }
+  - { id: key-chattering, name: 键盘按键连击, description: 单次按键产生多次输入的间歇性故障, parentIds: [quality-problem] }
+  - { id: business-intent, name: 业务意图, description: 客户希望企业完成的业务目标, parentIds: [] }
+  - { id: return-refund-intent, name: 退货退款意图, description: 退回商品并原路退还货款, parentIds: [business-intent], recognitionTerms: [退货退款, 退货, 退款, 退掉] }
+  - { id: exchange-intent, name: 换货意图, description: 因商品质量或功能问题更换同类商品, parentIds: [business-intent], recognitionTerms: [换货, 更换商品, 换一个, 换新] }
+  - { id: eligibility, name: 售后资格, description: 根据订单问题和政策计算的资格结论, parentIds: [] }
+  - { id: business-process, name: 业务流程, description: 企业发布并受公理约束的标准处理过程, parentIds: [] }
+  - { id: standard-return-refund-process, name: 标准退货退款流程, description: 处理质量问题退货退款的标准过程, parentIds: [business-process] }
+  - { id: after-sale-policy, name: 售后政策, description: 判断售后资格的正式规则, parentIds: [] }
+  - { id: business-goal, name: 业务目标, description: 企业流程需要实现的结果, parentIds: [] }
 
-# Capability 是企业能力知识。Planner 根据 requires/produces 关系反向拼装工作流。
-capabilities:
-  UnderstandRequest:
-    implementation: extractRequest
-    requires: ["UserRequestAvailable"]
-    produces: ["RequestUnderstood"]
-    effect: NONE
-    description: 从用户自然语言中识别身份、商品、售后类型和原因
+# R：领域关系定义。
+relations:
+  - { id: places, name: 提交订单, domain: customer, range: order, description: 客户创建订单 }
+  - { id: contains, name: 包含, domain: order, range: order-item, description: 订单包含订单项 }
+  - { id: reports, name: 报告问题, domain: customer, range: product-problem, description: 客户报告商品问题 }
+  - { id: realized-by, name: 由流程实现, domain: business-goal, range: business-process, description: 业务目标对应正式流程 }
+  - { id: governed-by, name: 受政策约束, domain: business-process, range: after-sale-policy, description: 流程执行必须遵守政策 }
 
-  QueryUserOrders:
-    implementation: queryOrders
-    requires: ["RequestUnderstood"]
-    produces: ["CustomerIdentified", "OrdersAvailable"]
-    effect: READ
-    description: 查询用户与名下订单
+# F：确定性业务函数的语义声明，实现由受控代码或规则引擎提供。
+functions:
+  - id: days-since-signed
+    name: 计算签收天数
+    inputConcepts: [order]
+    outputConcept: eligibility
+    deterministic: true
+    description: 根据订单签收时间和业务时钟确定签收天数
+  - id: evaluate-return-eligibility
+    name: 计算退货资格
+    inputConcepts: [order, product-problem, after-sale-policy]
+    outputConcept: eligibility
+    deterministic: true
+    description: 根据订单、问题分类和适用政策确定售后资格
+  - id: resolve-business-process
+    name: 解析适用流程
+    inputConcepts: [business-intent]
+    outputConcept: business-process
+    deterministic: true
+    description: 相同意图和已发布流程快照必须解析到相同流程
 
-  SelectTargetOrder:
-    implementation: selectOrder
-    requires: ["RequestUnderstood", "OrdersAvailable"]
-    produces: ["TargetOrderSelected"]
-    effect: NONE
-    description: 从订单列表中选择用户描述的商品
+# A：发布流程和执行计划都不得违反的企业公理。
+axioms:
+  - id: quality-classification
+    name: 按键连击属于质量问题
+    type: SUBCLASS
+    expression: key-chattering SUBCLASS_OF quality-problem
+    description: 按键连击必须按商品质量问题处理
+  - id: write-after-approval
+    name: 写操作必须在人工确认之后
+    type: PROCESS_ORDER
+    expression: human-approval PRECEDES write-capability
+    description: 创建售后工单等写操作不得绕过客户明确确认
+  - id: notification-after-fact
+    name: 通知必须晚于业务事实创建
+    type: PROCESS_ORDER
+    expression: business-fact-creation PRECEDES external-notification
+    description: 工单创建成功之前不得发送办理成功通知
+  - id: return-refund-required-order
+    name: 标准退货流程关键偏序
+    type: PROCESS_ORDER
+    expression: understand-request < query-orders < locate-order < collect-evidence < evaluate-policy < human-approval < create-ticket < notify-customer
+    description: 企业发布的标准退货退款流程必须保持该关键步骤顺序
 
-  EvaluateRefundPolicy:
-    implementation: evaluatePolicy
-    requires: ["TargetOrderSelected"]
-    produces: ["RefundDecisionAllowed"]
-    effect: READ
-    description: 查询物流详情并判断售后政策
-
-  RequestHumanApproval:
-    implementation: humanApproval
-    requires: ["CustomerIdentified", "TargetOrderSelected", "RefundDecisionAllowed"]
-    produces: ["HumanApproved"]
-    effect: NONE
-    # Graph Compiler 会把此能力配置为 interruptBefore，写入 checkpoint 后等待用户决定。
-    approvalRequired: true
-    description: 有副作用操作前请求人工确认
-
-  CreateSupportTicket:
-    implementation: createTicket
-    requires: ["CustomerIdentified", "TargetOrderSelected", "RefundDecisionAllowed", "HumanApproved"]
-    produces: ["SupportTicketCreated"]
-    # WRITE 会触发计划校验规则：之前必须已经出现 approvalRequired 能力。
-    effect: WRITE
-    description: 创建售后工单
-
-  NotifyCustomer:
-    implementation: notifyCustomer
-    requires: ["CustomerIdentified", "SupportTicketCreated"]
-    produces: ["CustomerNotified"]
-    # 外部通知同样属于副作用，不能在审批之前运行。
-    effect: EXTERNAL_WRITE
-    description: 向客户发送工单通知
-
-  ComposeFinalResponse:
-    implementation: composeResponse
-    requires: ["TargetOrderSelected", "SupportTicketCreated", "CustomerNotified"]
-    produces: ["ResponseComposed"]
-    effect: NONE
-    description: 生成最终回复
+# I：正式业务对象。流程实例表达“它是什么”，执行拓扑在 WorkflowRepository 中维护。
+instances:
+  - id: goal-return-refund-completed
+    type: business-goal
+    name: 完成退货退款受理
+    properties: { intentId: return-refund-intent }
+    relations: { realized-by: [process-standard-return-refund-v3] }
+  - id: goal-exchange-completed
+    type: business-goal
+    name: 完成换货受理
+    properties: { intentId: exchange-intent }
+    relations: { realized-by: [process-standard-return-refund-v3] }
+  - id: process-standard-return-refund-v3
+    type: standard-return-refund-process
+    name: 标准质量问题退货退款流程 V3
+    properties: { workflowId: standard-return-refund, workflowVersion: "3.1.0", status: PUBLISHED }
+    relations: { governed-by: [policy-seven-day-quality-return] }
+  - id: policy-seven-day-quality-return
+    type: after-sale-policy
+    name: 七天质量问题退货政策
+    properties: { knowledgeDocumentId: product-quality-policy }
+    relations: {}

@@ -65,7 +65,8 @@ public class EnterpriseOntologyRegistry {
         // 必须先校验后替换，不能让并发请求观察到半合法状态。
         OntologyValidator.validateDefinition(definition);
         current.set(definition);
-        log.info("Ontology 已更新，version={}, capabilities={}, source={}",
-                definition.version(), definition.capabilities().size(), source);
+        log.info("Ontology 已更新，version={}, C={}, R={}, F={}, A={}, I={}, source={}",
+                definition.version(), definition.concepts().size(), definition.relations().size(),
+                definition.functions().size(), definition.axioms().size(), definition.instances().size(), source);
     }
 }

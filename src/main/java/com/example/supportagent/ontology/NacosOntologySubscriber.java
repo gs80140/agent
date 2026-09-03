@@ -52,7 +52,13 @@ public class NacosOntologySubscriber {
             var current = configService.getConfig(properties.getDataId(), properties.getGroup(),
                     properties.getTimeoutMs());
             if (StringUtils.hasText(current)) {
-                registry.replaceYaml(current, "nacos:" + properties.getDataId());
+                try {
+                    registry.replaceYaml(current, "nacos:" + properties.getDataId());
+                } catch (RuntimeException exception) {
+                    // 允许应用先升级数据模型，再单独发布新版 Ontology；迁移期间继续使用 fallback。
+                    log.warn("Nacos 当前 Ontology 与五元组模型不兼容，继续使用 classpath fallback，dataId={}, 原因={}",
+                            properties.getDataId(), exception.getMessage());
+                }
             } else {
                 log.warn("Nacos 中未配置 Ontology，当前使用 classpath fallback，dataId={}", properties.getDataId());
             }

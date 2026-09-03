@@ -3,6 +3,7 @@ package com.example.supportagent.workflow.capability;
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.example.supportagent.tools.CustomerSupportTools;
 import com.example.supportagent.workflow.CapabilityHandler;
+import com.example.supportagent.workflow.CapabilitySchema;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -12,7 +13,12 @@ import java.util.Map;
 public class NotifyCustomerHandler implements CapabilityHandler {
     private final CustomerSupportTools tools;
     public NotifyCustomerHandler(CustomerSupportTools tools) { this.tools = tools; }
-    @Override public String name() { return "notifyCustomer"; }
+    @Override public CapabilitySchema schema() {
+        return new CapabilitySchema("notify-customer-progress", "通知客户售后办理进度", "notifyCustomer",
+                java.util.List.of("userId", "ticketId"),
+                java.util.List.of("notificationSent", "notificationMessage"),
+                CapabilitySchema.EffectLevel.EXTERNAL_WRITE, false);
+    }
 
     @Override
     public Map<String, Object> apply(OverAllState state) {

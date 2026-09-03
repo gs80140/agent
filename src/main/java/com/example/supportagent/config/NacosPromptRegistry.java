@@ -53,6 +53,12 @@ public class NacosPromptRegistry {
         return snapshot.template();
     }
 
+    /** 可选 Prompt 不存在时使用代码内安全默认值，适合逐步把 Planner Prompt 迁移到 Nacos。 */
+    public String getOrDefault(String name, String fallback) {
+        var snapshot = prompts.get(name);
+        return snapshot == null || !StringUtils.hasText(snapshot.template()) ? fallback : snapshot.template();
+    }
+
     public PromptSnapshot snapshot(String name) { return prompts.get(name); }
 
     private void subscribe(String name, PromptProperties.Binding binding) {
@@ -76,7 +82,11 @@ public class NacosPromptRegistry {
                 log.warn("可选 Prompt 当前不可用，name={}, key={}", name, binding.getKey());
             } else update(name, current);
         } catch (NacosException exception) {
-            throw new IllegalStateException("订阅 Nacos Prompt 失败，name=" + name + ", key=" + binding.getKey(), exception);
+            if (binding.isRequired()) {
+                throw new IllegalStateException("订阅 Nacos Prompt 失败，name=" + name + ", key=" + binding.getKey(), exception);
+            }
+            log.warn("订阅可选 Nacos Prompt 失败，将使用代码内默认模板，name={}, key={}",
+                    name, binding.getKey(), exception);
         }
     }
 

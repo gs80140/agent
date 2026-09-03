@@ -2,6 +2,7 @@ package com.example.supportagent.workflow.capability;
 
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.example.supportagent.workflow.CapabilityHandler;
+import com.example.supportagent.workflow.CapabilitySchema;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -12,7 +13,11 @@ import java.util.Map;
  */
 @Component
 public class HumanApprovalHandler implements CapabilityHandler {
-    @Override public String name() { return "humanApproval"; }
+    @Override public CapabilitySchema schema() {
+        return new CapabilitySchema("request-customer-approval", "请求客户确认即将执行的售后操作", "humanApproval",
+                java.util.List.of("userId", "orderId", "refundAllowed", "approvalDecision"),
+                java.util.List.of("humanApproved"), CapabilitySchema.EffectLevel.NONE, true);
+    }
 
     @Override
     public Map<String, Object> apply(OverAllState state) {

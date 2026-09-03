@@ -3,6 +3,7 @@ package com.example.supportagent.workflow.capability;
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.example.supportagent.tools.CustomerSupportTools;
 import com.example.supportagent.workflow.CapabilityHandler;
+import com.example.supportagent.workflow.CapabilitySchema;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -12,7 +13,11 @@ import java.util.Map;
 public class QueryOrdersHandler implements CapabilityHandler {
     private final CustomerSupportTools tools;
     public QueryOrdersHandler(CustomerSupportTools tools) { this.tools = tools; }
-    @Override public String name() { return "queryOrders"; }
+    @Override public CapabilitySchema schema() {
+        return new CapabilitySchema("query-customer-orders", "查询客户身份和最近订单", "queryOrders",
+                java.util.List.of("userIdentifier"), java.util.List.of("userId", "userName", "orders"),
+                CapabilitySchema.EffectLevel.READ, false);
+    }
 
     @Override
     public Map<String, Object> apply(OverAllState state) {

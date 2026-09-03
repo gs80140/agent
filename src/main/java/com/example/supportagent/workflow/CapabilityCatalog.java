@@ -13,17 +13,21 @@ public class CapabilityCatalog {
     private final Map<String, CapabilityHandler> handlers;
 
     public CapabilityCatalog(List<CapabilityHandler> handlers) {
-        // 重名会由 toUnmodifiableMap 主动报错，避免 Ontology 映射到不确定实现。
+        // 重名会由 toUnmodifiableMap 主动报错，避免企业 Workflow 映射到不确定实现。
         this.handlers = handlers.stream().collect(Collectors.toUnmodifiableMap(
-                CapabilityHandler::name, Function.identity()));
+                handler -> handler.schema().id(), Function.identity()));
     }
 
     /** 查找实现；动态计划无法通过任意类名或反射绕过这个入口。 */
-    public CapabilityHandler require(String name) {
-        var handler = handlers.get(name);
-        if (handler == null) throw new IllegalArgumentException("未注册的 Capability implementation: " + name);
+    public CapabilityHandler require(String capabilityId) {
+        var handler = handlers.get(capabilityId);
+        if (handler == null) throw new IllegalArgumentException("未注册的 Capability ID: " + capabilityId);
         return handler;
     }
 
-    public boolean contains(String name) { return handlers.containsKey(name); }
+    public boolean contains(String capabilityId) { return handlers.containsKey(capabilityId); }
+
+    public List<CapabilitySchema> schemas() {
+        return handlers.values().stream().map(CapabilityHandler::schema).toList();
+    }
 }

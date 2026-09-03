@@ -173,10 +173,23 @@
         .typing span:nth-child(2) { animation-delay: .2s; }
         .typing span:nth-child(3) { animation-delay: .4s; }
         @keyframes pulse { to { opacity: .25; transform: translateY(-3px); } }
+        .live-progress { display: grid; gap: 7px; }
+        .progress-title { color: var(--primary); font-weight: 650; }
+        .progress-item { display: flex; gap: 8px; align-items: flex-start; color: var(--muted); font-size: 13px; }
+        .progress-item::before { content: "✓"; color: #16a34a; font-weight: 700; }
+        .progress-item.active::before { content: "●"; color: #2563eb; animation: pulse 1s infinite alternate; }
+        .progress-history { margin-top: 13px; padding-top: 10px; border-top: 1px dashed var(--line); }
+        .progress-history summary { color: var(--primary); cursor: pointer; font-size: 12px; font-weight: 650; }
+        .progress-history .live-progress { margin-top: 9px; }
         .approval-actions { display: flex; gap: 10px; margin-top: 14px; }
         .approval-actions button { border: 0; border-radius: 10px; padding: 9px 16px; cursor: pointer; }
         .approve { color: #fff; background: #16a34a; }
         .reject { color: #991b1b; background: #fee2e2; }
+        .interaction-form { display: grid; gap: 11px; margin-top: 14px; padding: 13px; border-radius: 12px; background: #f8fafc; }
+        .interaction-field { display: grid; gap: 5px; }
+        .interaction-field label { font-size: 12px; font-weight: 650; color: var(--text); }
+        .interaction-field textarea { box-sizing: border-box; min-height: 64px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+        .interaction-submit { justify-self: start; border: 0; border-radius: 9px; padding: 9px 16px; color: #fff; background: var(--primary); cursor: pointer; }
         .trace { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line); font-size: 12px; }
         .trace summary { color: var(--primary); cursor: pointer; font-weight: 600; }
         .trace-meta { margin: 8px 0; color: var(--muted); }
@@ -334,22 +347,33 @@
         promptInput.value = '';
         resizeInput();
         addMessage('user', value);
-        const loading = addMessage('assistant', '', true);
+        const loading = addMessage('assistant', '');
+        const progress = createProgressView(loading.querySelector('.bubble'));
 
         try {
-            const response = await fetch('/api/agent/chat', {
+            const response = await fetch('/api/agent/chat/stream', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
                 body: JSON.stringify({ prompt: value })
             });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.detail || '服务请求失败');
+            if (!response.ok) throw new Error(await readHttpError(response, '服务请求失败'));
+            let data;
+            await consumeSse(response, (event, payload) => {
+                if (event === 'progress') appendProgress(progress, payload);
+                else if (event === 'result') data = payload.data;
+                else if (event === 'error') throw new Error(payload.message || 'Agent 执行失败');
+            });
+            if (!data) throw new Error('SSE 连接结束，但没有收到最终结果');
             const bubble = loading.querySelector('.bubble');
             bubble.innerHTML = renderMarkdown(data.content || '未收到回复');
+            attachProgressHistory(bubble, progress);
             if (data.status === 'WAITING_APPROVAL') addApprovalActions(bubble, data.executionId);
+            if (data.status === 'WAITING_INPUT') addInputInteraction(bubble, data);
             await appendExecutionTrace(bubble, data.executionId);
         } catch (error) {
-            loading.querySelector('.bubble').innerHTML = `<p>抱歉，暂时无法处理：${escapeHtml(error.message)}</p>`;
+            const bubble = loading.querySelector('.bubble');
+            bubble.innerHTML = `<p>抱歉，暂时无法处理：${escapeHtml(error.message)}</p>`;
+            attachProgressHistory(bubble, progress, '查看失败前的执行过程');
         } finally {
             busy = false;
             sendButton.disabled = false;
@@ -369,22 +393,177 @@
         actions.querySelector('.reject').addEventListener('click', () => submitDecision(bubble, executionId, false));
     }
 
+    /** 根据后端返回的 Workflow Interaction Schema 动态生成资料表单。 */
+    function addInputInteraction(bubble, data) {
+        const interaction = data.interaction;
+        if (!interaction) return;
+        const form = document.createElement('form');
+        form.className = 'interaction-form';
+        Object.entries(interaction.properties || {}).forEach(([name, field]) => {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'interaction-field';
+            const label = document.createElement('label');
+            label.htmlFor = `interaction-${interaction.interactionId}-${name}`;
+            label.textContent = field.label + ((interaction.required || []).includes(name) ? ' *' : '');
+            const input = document.createElement('textarea');
+            input.id = label.htmlFor;
+            input.name = name;
+            input.required = (interaction.required || []).includes(name);
+            input.dataset.fieldType = field.type;
+            input.maxLength = field.maxLength || 4000;
+            input.placeholder = field.type === 'array' ? '每行填写一项，例如图片或视频地址' : `请输入${field.label}`;
+            wrapper.append(label, input);
+            form.appendChild(wrapper);
+        });
+        const submit = document.createElement('button');
+        submit.className = 'interaction-submit';
+        submit.type = 'submit';
+        submit.textContent = '提交补充资料并继续';
+        form.appendChild(submit);
+        form.addEventListener('submit', event => {
+            event.preventDefault();
+            const values = {};
+            form.querySelectorAll('textarea').forEach(input => {
+                values[input.name] = input.dataset.fieldType === 'array'
+                    ? input.value.split('\n').map(value => value.trim()).filter(Boolean)
+                    : input.value.trim();
+            });
+            submitInteraction(form, data.executionId, interaction.interactionId, values);
+        });
+        bubble.appendChild(form);
+    }
+
+    async function submitInteraction(form, executionId, interactionId, values) {
+        form.querySelectorAll('button, textarea').forEach(element => element.disabled = true);
+        const pending = addMessage('assistant', '');
+        const progress = createProgressView(pending.querySelector('.bubble'));
+        try {
+            const response = await fetch(`/api/agent/executions/${encodeURIComponent(executionId)}`
+                + `/interactions/${encodeURIComponent(interactionId)}/stream`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+                body: JSON.stringify({ values })
+            });
+            if (!response.ok) throw new Error(await readHttpError(response, '资料提交失败'));
+            let data;
+            await consumeSse(response, (event, payload) => {
+                if (event === 'progress') appendProgress(progress, payload);
+                else if (event === 'result') data = payload.data;
+                else if (event === 'error') throw new Error(payload.message || '资料处理失败');
+            });
+            if (!data) throw new Error('SSE 连接结束，但没有收到资料处理结果');
+            const resultBubble = pending.querySelector('.bubble');
+            resultBubble.innerHTML = renderMarkdown(data.content || '资料已提交');
+            attachProgressHistory(resultBubble, progress);
+            if (data.status === 'WAITING_APPROVAL') addApprovalActions(resultBubble, executionId);
+            if (data.status === 'WAITING_INPUT') addInputInteraction(resultBubble, data);
+            await appendExecutionTrace(resultBubble, executionId);
+        } catch (error) {
+            const resultBubble = pending.querySelector('.bubble');
+            resultBubble.innerHTML = `<p>资料提交失败：${escapeHtml(error.message)}</p>`;
+            attachProgressHistory(resultBubble, progress, '查看失败前的执行过程');
+            form.querySelectorAll('button, textarea').forEach(element => element.disabled = false);
+        }
+    }
+
     async function submitDecision(bubble, executionId, approved) {
         // 使用原 executionId，后端才能从对应 threadId 的 checkpoint 继续。
         bubble.querySelectorAll('button').forEach(button => button.disabled = true);
-        const pending = addMessage('assistant', '', true);
+        const pending = addMessage('assistant', '');
+        const progress = createProgressView(pending.querySelector('.bubble'));
         try {
-            const response = await fetch(`/api/agent/executions/${encodeURIComponent(executionId)}/decision`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
+            const response = await fetch(`/api/agent/executions/${encodeURIComponent(executionId)}/decision/stream`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
                 body: JSON.stringify({ approved })
             });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.detail || '审批请求失败');
+            if (!response.ok) throw new Error(await readHttpError(response, '审批请求失败'));
+            let data;
+            await consumeSse(response, (event, payload) => {
+                if (event === 'progress') appendProgress(progress, payload);
+                else if (event === 'result') data = payload.data;
+                else if (event === 'error') throw new Error(payload.message || '审批执行失败');
+            });
+            if (!data) throw new Error('SSE 连接结束，但没有收到审批结果');
             const resultBubble = pending.querySelector('.bubble');
             resultBubble.innerHTML = renderMarkdown(data.content || '流程已结束');
+            attachProgressHistory(resultBubble, progress);
             await appendExecutionTrace(resultBubble, executionId);
         } catch (error) {
-            pending.querySelector('.bubble').innerHTML = `<p>审批处理失败：${escapeHtml(error.message)}</p>`;
+            const resultBubble = pending.querySelector('.bubble');
+            resultBubble.innerHTML = `<p>审批处理失败：${escapeHtml(error.message)}</p>`;
+            attachProgressHistory(resultBubble, progress, '查看失败前的执行过程');
+        }
+    }
+
+    function createProgressView(bubble) {
+        bubble.innerHTML = '<div class="live-progress"><div class="progress-title">Agent 正在处理…</div></div>';
+        return { container: bubble.querySelector('.live-progress'), active: null, events: [] };
+    }
+
+    function appendProgress(view, event) {
+        view.events.push(event);
+        if (view.active) view.active.classList.remove('active');
+        const item = document.createElement('div');
+        item.className = 'progress-item active';
+        item.dataset.phase = event.phase || '';
+        item.textContent = event.message || event.phase || '处理中…';
+        view.container.appendChild(item);
+        view.active = item;
+        messages.scrollTop = messages.scrollHeight;
+    }
+
+    /** 最终回复替换实时区域后，把已收到的 SSE 事件重新挂载为可长期查看的审计记录。 */
+    function attachProgressHistory(bubble, view, title = '查看本次 Agent 执行过程') {
+        if (!view.events.length) return;
+        const details = document.createElement('details');
+        details.className = 'progress-history';
+        const summary = document.createElement('summary');
+        summary.textContent = `${title}（${view.events.length} 条）`;
+        details.appendChild(summary);
+        const list = document.createElement('div');
+        list.className = 'live-progress';
+        view.events.forEach(event => {
+            const item = document.createElement('div');
+            item.className = 'progress-item';
+            item.dataset.phase = event.phase || '';
+            const time = event.timestamp ? new Date(event.timestamp).toLocaleTimeString() + ' · ' : '';
+            item.textContent = time + (event.message || event.phase || '处理中');
+            list.appendChild(item);
+        });
+        details.appendChild(list);
+        bubble.appendChild(details);
+    }
+
+    /** 解析 fetch 返回的 POST SSE 数据帧，兼容一个网络 chunk 中包含多个事件。 */
+    async function consumeSse(response, onEvent) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (true) {
+            const { value, done } = await reader.read();
+            buffer += decoder.decode(value || new Uint8Array(), { stream: !done }).replace(/\r\n/g, '\n');
+            let boundary;
+            while ((boundary = buffer.indexOf('\n\n')) >= 0) {
+                const frame = buffer.slice(0, boundary);
+                buffer = buffer.slice(boundary + 2);
+                if (!frame.trim()) continue;
+                let event = 'message';
+                const dataLines = [];
+                frame.split('\n').forEach(line => {
+                    if (line.startsWith('event:')) event = line.slice(6).trim();
+                    if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart());
+                });
+                if (dataLines.length) onEvent(event, JSON.parse(dataLines.join('\n')));
+            }
+            if (done) break;
+        }
+    }
+
+    async function readHttpError(response, fallback) {
+        try {
+            const body = await response.json();
+            return body.detail || body.message || fallback;
+        } catch (_) {
+            return fallback;
         }
     }
 
@@ -396,7 +575,9 @@
         details.className = 'trace';
         const current = trace.currentNode ? ` · 当前：${escapeHtml(trace.currentNode)}` : '';
         details.innerHTML = `<summary>查看动态 Graph 执行轨迹</summary>
-            <div class="trace-meta">状态：${escapeHtml(trace.status)}${current} · Ontology：${escapeHtml(trace.ontologyVersion)} · ${trace.elapsedMs} ms</div>`;
+            <div class="trace-meta">状态：${escapeHtml(trace.status)}${current} · Ontology：${escapeHtml(trace.ontologyVersion)} · Workflow：${escapeHtml(trace.workflowId)}@${escapeHtml(trace.workflowVersion)} · ${trace.elapsedMs} ms</div>
+            <div class="trace-meta">引用知识：${escapeHtml((trace.knowledgeReferences || []).join(', ') || '-')}</div>
+            <div class="trace-meta">规划说明：${escapeHtml(trace.planningReasoning || '-')}</div>`;
 
         const flow = document.createElement('div');
         flow.className = 'trace-flow';
@@ -405,7 +586,8 @@
         visibleNodes.forEach((node, index) => {
             if (index) flow.insertAdjacentHTML('beforeend', '<span class="trace-arrow">→</span>');
             let status = (node.status || 'PENDING').toLowerCase();
-            if (trace.status === 'WAITING_APPROVAL' && node.nodeId === trace.currentNode) status = 'waiting';
+            if ((trace.status === 'WAITING_APPROVAL' || trace.status === 'WAITING_INPUT')
+                    && node.nodeId === trace.currentNode) status = 'waiting';
             flow.insertAdjacentHTML('beforeend', `<span class="trace-node ${status}" title="${escapeHtml(node.status || '')}">${escapeHtml(node.capability)}</span>`);
         });
         details.appendChild(flow);

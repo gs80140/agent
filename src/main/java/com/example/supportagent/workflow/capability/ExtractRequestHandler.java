@@ -2,6 +2,7 @@ package com.example.supportagent.workflow.capability;
 
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.example.supportagent.workflow.CapabilityHandler;
+import com.example.supportagent.workflow.CapabilitySchema;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -15,7 +16,12 @@ import java.util.regex.Pattern;
 public class ExtractRequestHandler implements CapabilityHandler {
     private static final Pattern PHONE = Pattern.compile("1[3-9]\\d{9}");
 
-    @Override public String name() { return "extractRequest"; }
+    @Override public CapabilitySchema schema() {
+        return new CapabilitySchema("understand-customer-request", "理解客户售后诉求", "extractRequest",
+                java.util.List.of("userPrompt"),
+                java.util.List.of("userIdentifier", "targetProduct", "serviceType", "reason"),
+                CapabilitySchema.EffectLevel.NONE, false);
+    }
 
     @Override
     public Map<String, Object> apply(OverAllState state) {

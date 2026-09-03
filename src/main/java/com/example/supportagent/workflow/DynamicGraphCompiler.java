@@ -21,10 +21,13 @@ public class DynamicGraphCompiler {
     private static final Logger log = LoggerFactory.getLogger(DynamicGraphCompiler.class);
     private final CapabilityCatalog catalog;
     private final ExecutionTraceStore traceStore;
+    private final WorkflowRepository workflows;
 
-    public DynamicGraphCompiler(CapabilityCatalog catalog, ExecutionTraceStore traceStore) {
+    public DynamicGraphCompiler(CapabilityCatalog catalog, ExecutionTraceStore traceStore,
+                                WorkflowRepository workflows) {
         this.catalog = catalog;
         this.traceStore = traceStore;
+        this.workflows = workflows;
     }
 
     /**
@@ -33,26 +36,41 @@ public class DynamicGraphCompiler {
      */
     public CompiledGraph compile(ExecutionPlan plan) {
         try {
+            // 防止任何调用方绕过 Resolver 构造自由计划：编译器再次核对已发布流程及完整节点序列。
+            var published = workflows.requirePublished(plan.workflowId(), plan.workflowVersion());
+            var expectedNodes = published.nodes().stream()
+                    .map(n -> n.id() + "|" + n.capabilityId() + "|" + n.knowledgeConceptIds() + "|" + n.interaction()).toList();
+            var actualNodes = plan.nodes().stream()
+                    .map(n -> n.id() + "|" + n.capabilityId() + "|" + n.knowledgeConceptIds() + "|" + n.interaction()).toList();
+            if (!expectedNodes.equals(actualNodes)) {
+                throw new IllegalArgumentException("ExecutionPlan 与企业已发布 Workflow 节点序列不一致");
+            }
             var graph = new StateGraph();
             for (var node : plan.nodes()) {
-                var handler = catalog.require(node.implementation());
+                var handler = catalog.require(node.capabilityId());
                 // 包一层追踪代理：业务 Handler 无需感知监控，所有动态节点都能得到一致的日志和轨迹。
                 graph.addNode(node.id(), node_async(state -> {
                     String executionId = state.value("executionId", "unknown");
                     traceStore.nodeStarted(executionId, node, state.data().keySet().stream().sorted().toList());
                     long started = System.nanoTime();
                     log.info("Graph 节点开始，executionId={}, node={}, capability={}, implementation={}, stateKeys={}",
-                            executionId, node.id(), node.capability(), node.implementation(), state.data().keySet());
+                            executionId, node.id(), node.capabilityName(), node.implementation(), state.data().keySet());
                     try {
-                        var output = handler.apply(state);
+                        var output = handler.execute(state, node);
                         traceStore.nodeCompleted(executionId, node.id(), output);
                         log.info("Graph 节点完成，executionId={}, node={}, elapsedMs={}, outputKeys={}",
                                 executionId, node.id(), (System.nanoTime() - started) / 1_000_000, output.keySet());
                         return output;
+                    } catch (BusinessRuleRejection rejection) {
+                        // 预期的政策拒绝单独记录，不作为系统 ERROR 或节点 FAILED 告警。
+                        traceStore.nodeRejected(executionId, node.id(), rejection);
+                        log.info("Graph 节点得到业务拒绝结论，executionId={}, node={}, code={}",
+                                executionId, node.id(), rejection.code());
+                        throw rejection;
                     } catch (Exception exception) {
                         traceStore.nodeFailed(executionId, node.id(), exception);
                         log.error("Graph 节点失败，executionId={}, node={}, capability={}",
-                                executionId, node.id(), node.capability(), exception);
+                                executionId, node.id(), node.capabilityName(), exception);
                         throw exception;
                     }
                 }));
@@ -63,12 +81,12 @@ public class DynamicGraphCompiler {
             }
             graph.addEdge(plan.nodes().getLast().id(), END);
 
-            String[] approvalNodes = plan.nodes().stream().filter(ExecutionPlan.PlanNode::approvalRequired)
+            String[] interactionNodes = plan.nodes().stream().filter(node -> node.interaction() != null)
                     .map(ExecutionPlan.PlanNode::id).toArray(String[]::new);
             var compileConfig = CompileConfig.builder()
                     // interruptBefore 会在审批节点执行前保存状态；此时所有写操作均尚未发生。
                     .saverConfig(SaverConfig.builder().register(new MemorySaver()).build())
-                    .interruptBefore(approvalNodes)
+                    .interruptBefore(interactionNodes)
                     .recursionLimit(50)
                     .build();
             return graph.compile(compileConfig);

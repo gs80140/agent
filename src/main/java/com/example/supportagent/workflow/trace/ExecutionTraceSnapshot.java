@@ -14,12 +14,16 @@ public record ExecutionTraceSnapshot(
         String executionId,
         String goal,
         String ontologyVersion,
+        String workflowId,
+        String workflowVersion,
         String status,
         String currentNode,
         Instant startedAt,
         Instant updatedAt,
         long elapsedMs,
         String mermaid,
+        List<String> knowledgeReferences,
+        String planningReasoning,
         List<ExecutionPlan.PlanNode> plan,
         List<NodeTrace> nodes) {
 

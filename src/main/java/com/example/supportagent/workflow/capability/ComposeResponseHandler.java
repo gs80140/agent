@@ -2,6 +2,7 @@ package com.example.supportagent.workflow.capability;
 
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.example.supportagent.workflow.CapabilityHandler;
+import com.example.supportagent.workflow.CapabilitySchema;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -9,7 +10,11 @@ import java.util.Map;
 /** 最终展示节点：只读取已被前序能力验证过的状态，不再产生外部副作用。 */
 @Component
 public class ComposeResponseHandler implements CapabilityHandler {
-    @Override public String name() { return "composeResponse"; }
+    @Override public CapabilitySchema schema() {
+        return new CapabilitySchema("compose-customer-response", "汇总并回复售后处理结果", "composeResponse",
+                java.util.List.of("userName", "productName", "orderId", "ticketId", "ticketStatus"),
+                java.util.List.of("finalResponse"), CapabilitySchema.EffectLevel.NONE, false);
+    }
 
     @Override
     public Map<String, Object> apply(OverAllState state) {

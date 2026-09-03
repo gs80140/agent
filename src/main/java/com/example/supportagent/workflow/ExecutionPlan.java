@@ -1,6 +1,6 @@
 package com.example.supportagent.workflow;
 
-import com.example.supportagent.ontology.OntologyDefinition.EffectLevel;
+import com.example.supportagent.workflow.CapabilitySchema.EffectLevel;
 
 import java.util.List;
 
@@ -11,24 +11,33 @@ import java.util.List;
 public record ExecutionPlan(
         String goal,
         String ontologyVersion,
+        String workflowId,
+        String workflowVersion,
+        List<String> knowledgeReferences,
+        String planningReasoning,
         List<PlanNode> nodes) {
 
     public ExecutionPlan {
+        knowledgeReferences = List.copyOf(knowledgeReferences);
         nodes = List.copyOf(nodes);
     }
 
     /** 单个计划节点，保留语义信息以便编译前做权限和副作用校验。 */
     public record PlanNode(
             String id,
-            String capability,
+            String capabilityId,
+            String capabilityName,
             String implementation,
             EffectLevel effect,
             boolean approvalRequired,
             List<String> requires,
-            List<String> produces) {
+            List<String> produces,
+            List<String> knowledgeConceptIds,
+            HumanInteraction interaction) {
         public PlanNode {
             requires = List.copyOf(requires);
             produces = List.copyOf(produces);
+            knowledgeConceptIds = knowledgeConceptIds == null ? List.of() : List.copyOf(knowledgeConceptIds);
         }
     }
 }

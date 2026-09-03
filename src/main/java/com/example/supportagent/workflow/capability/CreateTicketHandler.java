@@ -3,6 +3,7 @@ package com.example.supportagent.workflow.capability;
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.example.supportagent.tools.CustomerSupportTools;
 import com.example.supportagent.workflow.CapabilityHandler;
+import com.example.supportagent.workflow.CapabilitySchema;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -12,7 +13,11 @@ import java.util.Map;
 public class CreateTicketHandler implements CapabilityHandler {
     private final CustomerSupportTools tools;
     public CreateTicketHandler(CustomerSupportTools tools) { this.tools = tools; }
-    @Override public String name() { return "createTicket"; }
+    @Override public CapabilitySchema schema() {
+        return new CapabilitySchema("create-after-sale-ticket", "创建售后服务工单", "createTicket",
+                java.util.List.of("userId", "orderId", "refundAllowed", "humanApproved", "serviceType", "reason"),
+                java.util.List.of("ticketId", "ticketStatus"), CapabilitySchema.EffectLevel.WRITE, false);
+    }
 
     @Override
     public Map<String, Object> apply(OverAllState state) {
